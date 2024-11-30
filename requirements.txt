@@ -3,3 +3,4 @@ selenium
 pandas
 requests
 urllib3
+openpyxl

@@ -2,6 +2,10 @@
 
 Aplicação Django para coletar e armazenar dados das planilhas de preço da SEINFRA-MG (Secretaria de Estado de Infraestrutura e Mobilidade de Minas Gerais).
 
+# Motivo da escolha
+
+Era o primeiro da lista e foi o primeiro que clickei.
+
 ## 🚀 Funcionalidades
 
 - Coleta automática de planilhas de preços de todas as regiões

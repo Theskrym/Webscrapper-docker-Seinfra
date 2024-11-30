@@ -3,32 +3,105 @@
 <head>
     <title>Scraper SEINFRA</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+        #log {
+            font-family: monospace;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border: 1px solid #ccc;
+            height: 400px;
+            overflow-y: auto;
+            margin: 20px 0;
         }
-        .button {
-            background-color: #4CAF50;
-            border: none;
-            color: white;
-            padding: 15px 32px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            margin: 4px 2px;
-            cursor: pointer;
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
         }
     </style>
+    <script>
+        let eventSource;
+        
+        function iniciarScraping() {
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('log').innerHTML = '';
+            
+            fetch('/scraper/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    iniciarMonitoramento();
+                    addLogEntry(data.message, 'success');
+                } else {
+                    addLogEntry(data.message, 'error');
+                    document.getElementById('startButton').disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                addLogEntry('Erro ao iniciar scraping', 'error');
+                document.getElementById('startButton').disabled = false;
+            });
+        }
+
+        function iniciarMonitoramento() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource('/scraper/progress/');
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.message) {
+                    addLogEntry(data.message);
+                    
+                    // Auto-scroll para a última mensagem
+                    const log = document.getElementById('log');
+                    log.scrollTop = log.scrollHeight;
+                }
+                
+                // Se a mensagem indicar conclusão, habilita o botão
+                if (data.message && (
+                    data.message.includes('concluído') || 
+                    data.message.includes('erro') || 
+                    data.message.includes('ERRO')
+                )) {
+                    document.getElementById('startButton').disabled = false;
+                    eventSource.close();
+                }
+            };
+            
+            eventSource.onerror = function() {
+                addLogEntry('Erro na conexão com o servidor', 'error');
+                document.getElementById('startButton').disabled = false;
+                eventSource.close();
+            };
+        }
+        
+        function addLogEntry(message, className = '') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${className}`;
+            entry.textContent = message;
+            log.appendChild(entry);
+        }
+    </script>
 </head>
 <body>
     <h1>Scraper SEINFRA</h1>
-    <p>Clique no botão abaixo para iniciar o scraping dos dados:</p>
-    <form method="post">
-        {% csrf_token %}
-        <button type="submit" class="button">Iniciar Scraping</button>
-    </form>
+    {% csrf_token %}
+    <button id="startButton" onclick="iniciarScraping()">Iniciar Scraping</button>
+    <div id="log"></div>
 </body>
 </html>
