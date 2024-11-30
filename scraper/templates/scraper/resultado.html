@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Resultado do Scraping</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #progress {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Progresso do Scraping</h1>
+    <div id="progress"></div>
+    <a href="/scraper/" class="button">Voltar</a>
+
+    <script>
+        const progress = document.getElementById('progress');
+        
+        const eventSource = new EventSource('/scraper/progress/');
+        
+        eventSource.onmessage = function(event) {
+            if (event.data === '[FIM]') {
+                eventSource.close();
+                return;
+            }
+            
+            const message = document.createElement('div');
+            message.className = 'message';
+            message.textContent = event.data;
+            progress.appendChild(message);
+            progress.scrollTop = progress.scrollHeight;
+        };
+        
+        eventSource.onerror = function(event) {
+            eventSource.close();
+        };
+    </script>
+</body>
+</html>
