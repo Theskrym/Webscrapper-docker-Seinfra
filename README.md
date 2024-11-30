@@ -78,22 +78,6 @@ Aplicação Django para coletar e armazenar dados das planilhas de preço da SEI
 
 6. Acesse http://localhost:8000/scraper/
 
-## 📦 Estrutura do Projeto
-
-.
-├── config/ # Configurações do Django
-│ ├── settings.py # Configurações principais
-│ └── urls.py # Configuração de URLs
-├── scraper/ # App principal
-│ ├── templates/ # Templates HTML
-│ │ ├── index.html # Página inicial
-│ │ └── resultado.html # Página de resultados
-│ ├── scraping.py # Lógica do scraper
-│ └── views.py # Views do Django
-├── Dockerfile # Configuração Docker
-├── docker-compose.yml # Configuração Docker Compose
-└── requirements.txt # Dependências Python
-
 ## 🛠️ Como Usar
 
 1. Acesse a interface web em http://localhost:8000/scraper/
