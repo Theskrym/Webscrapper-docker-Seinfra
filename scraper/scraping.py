@@ -6,14 +6,84 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from io import BytesIO
+
+def download_planilha(url, max_retries=3, backoff_factor=0.5):
+    """
+    Tenta baixar a planilha com sistema de retry
+    """
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=max_retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=[500, 502, 503, 504, 429]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    try:
+        response = session.get(url, timeout=30)  # Aumentado timeout para 30 segundos
+        if response.status_code == 200:
+            return response.content
+        else:
+            print(f"Erro ao baixar planilha. Status code: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Erro ao baixar planilha: {str(e)}")
+        return None
 
 def processar_planilha(url_planilha, regiao):
     try:
-        df = pd.read_excel(url_planilha)
-        df['regiao'] = regiao
-        return df
+        # Tenta baixar a planilha com retry
+        content = download_planilha(url_planilha)
+        if content is None:
+            return None
+            
+        # Lê o conteúdo da planilha usando BytesIO
+        df = pd.read_excel(BytesIO(content), sheet_name='Relatório')
+        
+        # Define a linha 25 como cabeçalho
+        header_row = 25
+        
+        # Pega os dados após o cabeçalho
+        df = df.iloc[header_row+1:].reset_index(drop=True)
+        
+        # Verifica o número de colunas e ajusta conforme necessário
+        num_columns = len(df.columns)
+        if num_columns >= 8:  # Garante que temos pelo menos 8 colunas
+            # Se tivermos mais que 8 colunas, pegamos apenas as primeiras 8
+            df = df.iloc[:, :8]
+            
+            # Renomeia as colunas manualmente
+            new_columns = ['CÓDIGO', None, 'DESCRIÇÃO DO SERVIÇO', None, None, None, 'UNIDADE', 'CUSTO UNITÁRIO']
+            df.columns = new_columns
+            
+            # Remove colunas None/nan
+            df = df.drop(columns=[col for col in df.columns if col is None])
+            
+            # Adiciona a coluna região
+            df['regiao'] = regiao
+            
+            # Remove linhas totalmente vazias
+            df = df.dropna(how='all')
+            
+            # Garante que os tipos de dados estejam corretos
+            df['CÓDIGO'] = df['CÓDIGO'].astype(str)
+            df['DESCRIÇÃO DO SERVIÇO'] = df['DESCRIÇÃO DO SERVIÇO'].astype(str)
+            df['UNIDADE'] = df['UNIDADE'].astype(str)
+            df['CUSTO UNITÁRIO'] = pd.to_numeric(df['CUSTO UNITÁRIO'], errors='coerce')
+            
+            return df
+        else:
+            print(f"Erro: número insuficiente de colunas ({num_columns}) na planilha {url_planilha}")
+            return None
+            
     except Exception as e:
-        print(f"Erro ao processar planilha: {str(e)}")
+        print(f"Erro ao processar planilha {url_planilha}: {str(e)}")
         return None
 
 def scraper_seinfra():
@@ -31,8 +101,8 @@ def scraper_seinfra():
         
         print("Configurando Firefox...")
         driver = webdriver.Firefox(options=firefox_options)
-        driver.implicitly_wait(5)
-        wait = WebDriverWait(driver, 5)
+        driver.implicitly_wait(10)  # Aumentado para 10 segundos
+        wait = WebDriverWait(driver, 10)  # Aumentado para 10 segundos
         
         url = "http://www.infraestrutura.mg.gov.br/component/gmg/page/102-consulta-a-planilha-preco-setop"
         print(f"Tentando acessar: {url}")
@@ -127,3 +197,16 @@ def iniciar_scraping(request=None):
 if __name__ == "__main__":
     resultado = iniciar_scraping()
     print(f"\n{resultado['message']}")
+    
+    # Chama o script test_db.py com o caminho correto do CSV
+    import test_db
+    import os
+    
+    # Obtém o diretório do script atual
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Define o caminho completo do CSV
+    csv_path = os.path.join(script_dir, 'planilhas_consolidadas.csv')
+    
+    # Chama a nova função com o caminho do CSV
+    test_db.importar_csv_direto(csv_path)
