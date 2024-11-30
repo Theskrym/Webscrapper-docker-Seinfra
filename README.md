@@ -81,6 +81,7 @@ Aplicação Django para coletar e armazenar dados das planilhas de preço da SEI
 ## 📦 Estrutura do Projeto
 
 .
+
 ├── config/ # Configurações do Django
 
 │ ├── settings.py # Configurações principais
