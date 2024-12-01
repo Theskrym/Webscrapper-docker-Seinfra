@@ -11,6 +11,24 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from io import BytesIO
 
+def fechar_navegador_com_timeout(driver, timeout=10):
+    """
+    Fecha o navegador com um timeout
+    """
+    try:
+        print("Tentando fechar navegador normalmente...")
+        driver.quit()
+        print("Navegador fechado com sucesso")
+        return True
+    except Exception as e:
+        print(f"Erro ao fechar navegador: {str(e)}")
+        try:
+            print("Tentando forçar fechamento...")
+            driver.quit()
+        except:
+            print("Não foi possível fechar o navegador")
+        return False
+
 def download_planilha(url, max_retries=3, backoff_factor=0.5):
     """
     Tenta baixar a planilha com sistema de retry
@@ -92,6 +110,17 @@ def scraper_seinfra():
     """
     print("Iniciando scraper_seinfra...")
     dados_processados = []
+    driver = None
+    
+    # Define o caminho absoluto para salvar o CSV na pasta data
+    csv_path = os.path.join('/app/data', 'planilhas_consolidadas.csv')
+    
+    # Cria o diretório se não existir
+    os.makedirs('/app/data', exist_ok=True)
+    
+    print(f"Tentando salvar em: {os.path.abspath(csv_path)}")
+    print(f"Diretório atual é: {os.getcwd()}")
+    
     try:
         firefox_options = webdriver.FirefoxOptions()
         firefox_options.add_argument('--headless')
@@ -160,53 +189,113 @@ def scraper_seinfra():
         if dados_processados:
             print("\nConsolidando dados...")
             df_final = pd.concat(dados_processados, ignore_index=True)
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            csv_path = os.path.join(script_dir, 'planilhas_consolidadas.csv')
+            
+            print("Salvando CSV...")
             df_final.to_csv(csv_path, index=False, encoding='utf-8-sig')
-            print("Dados salvos em 'planilhas_consolidadas.csv'")
+            print(f"Dados salvos em: {csv_path}")
+            
+            print("Preparando para fechar navegador...")
+            if driver:
+                print("Iniciando fechamento do navegador...")
+                fechar_navegador_com_timeout(driver)
+                driver = None
+            print("Navegador fechado")
+            
+            print("Retornando caminho do CSV...")
+            return csv_path
             
     except Exception as e:
         print(f"Erro em scraper_seinfra: {str(e)}")
         raise
     finally:
-        if 'driver' in locals():
-            print("Fechando navegador...")
-            driver.quit()
+        if driver:
+            print("Fechando navegador no finally...")
+            fechar_navegador_com_timeout(driver)
+            driver = None
+        print("Finalizando scraper_seinfra...")
 
 def iniciar_scraping(request=None):
+    def log_message(message):
+        # Envia mensagem tanto para console quanto para web
+        print(message)
+        if request and hasattr(request, 'send_event'):
+            request.send_event({'message': message})
+
     try:
+        log_message("\n" + "="*50)
+        log_message("INICIANDO PROCESSO DE SCRAPING")
+        log_message("="*50)
+        
         inicio = time.time()
-        scraper_seinfra()
+        log_message("Chamando scraper_seinfra...")
+        
+        try:
+            csv_path = scraper_seinfra()
+            log_message("scraper_seinfra retornou com sucesso!")
+            log_message(f"CSV Path retornado: {csv_path}")
+        except Exception as e:
+            log_message(f"Erro durante scraper_seinfra: {str(e)}")
+            raise
+            
+        log_message("\nVerificando arquivo CSV...")
+        if csv_path and os.path.exists(csv_path):
+            log_message(f"Arquivo CSV encontrado em: {csv_path}")
+            log_message("\n" + "="*50)
+            log_message("INICIANDO IMPORTAÇÃO PARA O BANCO")
+            log_message("="*50)
+            
+            log_message("Importando módulo test_db...")
+            import test_db
+            
+            log_message("\nIniciando importação para o banco de dados...")
+            resultado = test_db.importar_csv_direto(csv_path, request)
+            
+            if resultado:
+                log_message("\nImportação concluída com sucesso!")
+            else:
+                log_message("\nErro durante a importação!")
+                return {
+                    'status': 'error',
+                    'message': 'Erro na importação para o banco',
+                    'tempo_execucao': '0:0'
+                }
+        else:
+            log_message(f"\nERRO: Arquivo CSV não encontrado em {csv_path}")
+            return {
+                'status': 'error',
+                'message': 'Arquivo CSV não encontrado',
+                'tempo_execucao': '0:0'
+            }
+        
         fim = time.time()
         tempo_total = fim - inicio
         minutos = int(tempo_total // 60)
         segundos = int(tempo_total % 60)
         
+        log_message("\n" + "="*50)
+        log_message("PROCESSO COMPLETO")
+        log_message(f"Tempo total: {minutos}min {segundos}s")
+        log_message("="*50)
+        
         return {
             'status': 'success',
-            'message': f'Scraping concluído em {minutos} minutos e {segundos} segundos',
+            'message': 'PROCESSO CONCLUÍDO COM SUCESSO',
             'tempo_execucao': f'{minutos}:{segundos}'
         }
+        
     except Exception as e:
+        log_message("\n" + "="*50)
+        log_message("ERRO DURANTE O PROCESSO")
+        log_message("="*50)
+        log_message(f"Erro: {str(e)}")
+        import traceback
+        log_message(traceback.format_exc())
         return {
             'status': 'error',
-            'message': f'Erro durante o scraping: {str(e)}',
+            'message': f'ERRO: {str(e)}',
             'tempo_execucao': '0:0'
         }
 
 if __name__ == "__main__":
     resultado = iniciar_scraping()
     print(f"\n{resultado['message']}")
-    
-    # Chama o script test_db.py com o caminho correto do CSV
-    import test_db
-    import os
-    
-    # Obtém o diretório do script atual
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Define o caminho completo do CSV
-    csv_path = os.path.join(script_dir, 'planilhas_consolidadas.csv')
-    
-    # Chama a nova função com o caminho do CSV
-    test_db.importar_csv_direto(csv_path)

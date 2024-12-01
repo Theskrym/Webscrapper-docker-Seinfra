@@ -69,16 +69,13 @@
                     // Auto-scroll para a última mensagem
                     const log = document.getElementById('log');
                     log.scrollTop = log.scrollHeight;
-                }
-                
-                // Se a mensagem indicar conclusão, habilita o botão
-                if (data.message && (
-                    data.message.includes('concluído') || 
-                    data.message.includes('erro') || 
-                    data.message.includes('ERRO')
-                )) {
-                    document.getElementById('startButton').disabled = false;
-                    eventSource.close();
+                    
+                    // Verifica se o processo foi concluído
+                    if (data.message.includes('PROCESSO CONCLUÍDO COM SUCESSO') || 
+                        data.message.includes('ERRO:')) {
+                        document.getElementById('startButton').disabled = false;
+                        eventSource.close();
+                    }
                 }
             };
             

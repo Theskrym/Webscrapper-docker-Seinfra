@@ -1,6 +1,7 @@
 django
 selenium
 pandas
+psycopg2-binary
 requests
 urllib3
 openpyxl

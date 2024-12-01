@@ -1,97 +1,91 @@
-import os
-import sys
-from pathlib import Path
+import psycopg2
 import pandas as pd
-import sqlite3
+import os
 
-# Adiciona o diretório raiz do projeto ao PYTHONPATH
-BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(BASE_DIR))
+def importar_csv_direto(arquivo_csv, request=None):
+    def log_message(message):
+        print(message)
+        if request and hasattr(request, 'send_event'):
+            request.send_event({'message': message})
 
-# Configura as variáveis de ambiente do Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
-
-import django
-django.setup()
-
-from django.conf import settings
-
-def importar_csv_direto(arquivo_csv):
     try:
-        print(f"\nLendo arquivo {arquivo_csv}...")
+        log_message("\n" + "="*50)
+        log_message("INICIANDO IMPORTAÇÃO DO CSV PARA O BANCO")
+        log_message("="*50)
+        
+        # Primeiro testa a conexão
+        log_message("\nTestando conexão com o banco...")
+        conn_str = "postgresql://postgres:postgres@db:5432/postgres"
+        conn = psycopg2.connect(conn_str)
+        log_message("Conexão bem sucedida!")
+        
+        cursor = conn.cursor()
+        
+        # Agora tenta ler o CSV
+        log_message(f"\nTentando ler arquivo: {arquivo_csv}")
         df = pd.read_csv(arquivo_csv, encoding='utf-8-sig')
+        log_message(f"CSV lido com sucesso! Total de registros: {len(df)}")
         
-        print("\nColunas do DataFrame:")
-        print(df.columns.tolist())
-        print("\nTipos de dados:")
-        print(df.dtypes)
+        # Cria a tabela se não existir
+        log_message("\nCriando tabela se não existir...")
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS precos_setop (
+            id SERIAL PRIMARY KEY,
+            codigo VARCHAR(50),
+            descricao_servico TEXT,
+            unidade VARCHAR(20),
+            custo_unitario DECIMAL(10,2),
+            regiao VARCHAR(50),
+            data_importacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
         
-        # Limpa e prepara os dados
-        df = df[
-            df['CÓDIGO'].str.match(r'^[A-Z]{2,3}-\d+$', na=False) &
-            df['DESCRIÇÃO DO SERVIÇO'].notna() &
-            (df['DESCRIÇÃO DO SERVIÇO'].str.len() > 5) &
-            ~df['DESCRIÇÃO DO SERVIÇO'].str.contains(r'TABELA REFERENCIAL|DESONERAÇÃO|\d{2}/\d{4}', 
-                                                    na=False, regex=True, case=False) &
-            df['CUSTO UNITÁRIO'].notna()
-        ]
+        # Drop a tabela antiga e cria nova
+        log_message("Removendo tabela antiga...")
+        cursor.execute("DROP TABLE IF EXISTS precos_setop;")
+        cursor.execute(create_table_query)
+        log_message("Tabela recriada!")
         
-        # Remove duplicatas por código + região
-        df = df.drop_duplicates(subset=['CÓDIGO', 'regiao'], keep='last')
+        # Prepara e insere os dados
+        log_message("\nPreparando dados para inserção...")
+        valores = []
+        for _, row in df.iterrows():
+            valores.append((
+                str(row['CÓDIGO'])[:50],
+                row['DESCRIÇÃO DO SERVIÇO'],
+                str(row['UNIDADE'])[:20],
+                float(row['CUSTO UNITÁRIO']),
+                row['regiao'][:50]
+            ))
         
-        # Limpa e formata os dados antes de renomear
-        df['UNIDADE'] = df['UNIDADE'].fillna('')
+        log_message(f"Inserindo {len(valores)} registros...")
+        insert_query = """
+        INSERT INTO precos_setop (codigo, descricao_servico, unidade, custo_unitario, regiao)
+        VALUES (%s, %s, %s, %s, %s);
+        """
+        cursor.executemany(insert_query, valores)
         
-        # Converte CUSTO UNITÁRIO para float se necessário
-        if df['CUSTO UNITÁRIO'].dtype == 'object':
-            df['CUSTO UNITÁRIO'] = df['CUSTO UNITÁRIO'].str.replace('R$', '').str.strip().str.replace(',', '.').astype(float)
+        # Commit e fechamento
+        conn.commit()
+        log_message("Dados commitados com sucesso!")
         
-        # Renomeia as colunas para corresponder ao banco
-        df = df.rename(columns={
-            'CÓDIGO': 'CODIGO',
-            'DESCRIÇÃO DO SERVIÇO': 'DESCRICAO_DE_SERVICO',
-            'UNIDADE': 'UNIDADE',
-            'CUSTO UNITÁRIO': 'CUSTO_UNITARIO',
-            'regiao': 'REGIAO'
-        })
+        cursor.close()
+        conn.close()
+        log_message("Conexão fechada!")
         
-        print(f"\nTotal de registros válidos para importação: {len(df)}")
+        log_message("\n" + "="*50)
+        log_message("IMPORTAÇÃO CONCLUÍDA COM SUCESSO")
+        log_message("="*50)
+        return True
         
-        # Pega o caminho do banco SQLite das configurações do Django
-        db_path = settings.DATABASES['default']['NAME']
-        
-        # Conecta diretamente ao SQLite
-        with sqlite3.connect(db_path) as conn:
-            # Apaga registros existentes (opcional)
-            # conn.execute('DELETE FROM app_seinfra_mg')
-            
-            # Importa os dados direto do DataFrame
-            df.to_sql('app_seinfra_mg', conn, if_exists='append', index=False)
-        
-        print("Importação concluída com sucesso!")
-        
-        # Verifica o total no banco
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM app_seinfra_mg')
-            total = cursor.fetchone()[0]
-            print(f"\nTotal de registros no banco: {total}")
-            
-            # Mostra total por região
-            cursor.execute('''
-                SELECT REGIAO, COUNT(*) as total 
-                FROM app_seinfra_mg 
-                GROUP BY REGIAO 
-                ORDER BY REGIAO
-            ''')
-            print("\nDistribuição por região:")
-            for regiao, count in cursor.fetchall():
-                print(f"{regiao}: {count} registros")
-            
     except Exception as e:
-        print(f"Erro durante a importação: {str(e)}")
+        log_message(f"Erro: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        log_message(traceback.format_exc())
+        return False
 
 if __name__ == "__main__":
-    print("Este script deve ser importado pelo scraping.py")
+    # Para teste direto no container
+    csv_path = '/app/data/planilhas_consolidadas.csv'
+    resultado = importar_csv_direto(csv_path)
+    print("Sucesso!" if resultado else "Falha!")
