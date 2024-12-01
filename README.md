@@ -42,6 +42,11 @@ Era o primeiro da lista e foi o primeiro que clickei.
 
 3. Acesse http://localhost:8000/scraper/
 
+   ou
+
+        bash
+        docker-compose exec web python scraper/scraping.py
+   
 ### Instalação Local
 
 1. Clone o repositório:
